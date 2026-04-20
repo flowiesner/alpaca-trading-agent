@@ -1,0 +1,9 @@
+services:
+  trading-bot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./journal.db:/app/journal.db
+    environment:
+      - TZ=Europe/Vienna

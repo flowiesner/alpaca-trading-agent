@@ -1,0 +1,6 @@
+alpaca-py
+anthropic
+apscheduler
+requests
+pandas
+numpy
