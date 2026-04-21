@@ -30,6 +30,9 @@ def main():
     init_db()
     logger.info("Database initialized")
 
+    from notifications.ntfy import notify
+    notify("Trading bot started", "Scheduler is up. Next decision at 16:00 MEZ.", priority="low")
+
     scheduler = BlockingScheduler(timezone=TIMEZONE, job_defaults={"max_instances": 1})
 
     for slot in config.DECISION_TIMES:
