@@ -17,6 +17,14 @@ VIENNA = ZoneInfo("Europe/Vienna")
 
 
 def run_daily_review():
+    try:
+        _run_daily_review_inner()
+    except Exception:
+        logger.exception("Unhandled exception in run_daily_review")
+        notify_error("run_daily_review crashed", "See trading.log for full traceback")
+
+
+def _run_daily_review_inner():
     logger.info("--- Running daily review ---")
     now_vienna = datetime.now(VIENNA)
     date_str = now_vienna.strftime("%Y-%m-%d")

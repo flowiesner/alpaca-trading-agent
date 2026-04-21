@@ -1,5 +1,6 @@
 import logging
 import sys
+from logging.handlers import RotatingFileHandler
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -9,11 +10,17 @@ from storage.db import init_db
 from reasoning.decision import run_decision
 from reasoning.daily_review import run_daily_review
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s – %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)],
+_fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s – %(message)s")
+
+_file_handler = RotatingFileHandler(
+    "trading.log", maxBytes=5 * 1024 * 1024, backupCount=5, encoding="utf-8"
 )
+_file_handler.setFormatter(_fmt)
+
+_stream_handler = logging.StreamHandler(sys.stdout)
+_stream_handler.setFormatter(_fmt)
+
+logging.basicConfig(level=logging.INFO, handlers=[_file_handler, _stream_handler])
 logger = logging.getLogger(__name__)
 
 TIMEZONE = "Europe/Vienna"
@@ -23,7 +30,7 @@ def main():
     init_db()
     logger.info("Database initialized")
 
-    scheduler = BlockingScheduler(timezone=TIMEZONE)
+    scheduler = BlockingScheduler(timezone=TIMEZONE, job_defaults={"max_instances": 1})
 
     for slot in config.DECISION_TIMES:
         scheduler.add_job(

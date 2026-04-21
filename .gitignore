@@ -1,5 +1,6 @@
 .env
 journal.db
+*.log
 __pycache__/
 *.pyc
 *.pyo

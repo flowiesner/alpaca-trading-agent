@@ -6,7 +6,7 @@ import anthropic
 
 import config
 from data.features import compute_features
-from execution.orders import execute_action, get_current_position, reconcile_sl_hits
+from execution.orders import execute_action, get_current_position, get_portfolio_value, reconcile_sl_hits
 from notifications.ntfy import notify_decision, notify_error, notify_sl_hit
 from reasoning.prompts import build_decision_prompt
 from storage import db
@@ -75,6 +75,14 @@ def _summarize_for_history(decisions: list[dict]) -> list[dict]:
 
 
 def run_decision():
+    try:
+        _run_decision_inner()
+    except Exception:
+        logger.exception("Unhandled exception in run_decision – job aborted")
+        notify_error("run_decision crashed", "See trading.log for full traceback")
+
+
+def _run_decision_inner():
     logger.info("--- Running decision ---")
 
     # Reconcile SL hits before computing new features
@@ -97,13 +105,18 @@ def run_decision():
             return
     except Exception as e:
         logger.warning("Could not fetch market clock: %s – continuing anyway", e)
+        notify_error("Market clock fetch failed", f"Continuing without clock check: {e}")
 
     market_status = _get_market_status()
     decision_number = db.get_decision_count() + 1
     current_strategy = db.get_current_strategy()
     position = get_current_position()
+    logger.info("Decision #%d | market=%s | position=%s pnl=%.2f%%",
+                decision_number, market_status, position["status"], position["unrealized_pnl_pct"])
 
     features = compute_features()
+    features["portfolio_value"] = round(get_portfolio_value(), 2)
+    logger.debug("Features computed: %s", features)
     features["current_position"] = position["status"]
     features["position_pnl"] = position["unrealized_pnl_pct"]
     features["market_status"] = market_status
@@ -134,18 +147,37 @@ def run_decision():
         decision = _parse_and_validate(raw)
     except (json.JSONDecodeError, ValueError) as e:
         reason = str(e)
-        logger.warning("Invalid response (attempt 1): %s", reason)
+        logger.warning("Invalid response (attempt 1): %s\nRaw response: %s", reason, raw)
         retry_user = user + f'\n\nYour previous response was invalid because: {reason}. Return only valid JSON.'
         raw2 = _call_claude(system, retry_user)
         try:
             decision = _parse_and_validate(raw2)
         except (json.JSONDecodeError, ValueError) as e2:
-            logger.error("Invalid response (attempt 2): %s – skipping decision", e2)
+            logger.error("Invalid response (attempt 2): %s\nRaw response: %s", e2, raw2)
             notify_error(f"Decision #{decision_number} skipped", f"Claude returned invalid JSON twice: {e2}")
             return
 
     action = decision["action"]
     timestamp = datetime.now(timezone.utc).isoformat()
+
+    # HOLD/CLOSE with no open position is a Claude error – re-prompt once
+    if action in ("HOLD", "CLOSE") and position["status"] == "CASH":
+        reason = f"Action {action!r} is invalid when current_position is CASH – no position to hold or close."
+        logger.warning(reason)
+        notify_error(f"Decision #{decision_number} invalid action", reason)
+        retry_user = user + f'\n\nYour previous response was invalid because: {reason}. Return only valid JSON.'
+        raw2 = _call_claude(system, retry_user)
+        try:
+            decision = _parse_and_validate(raw2)
+            action = decision["action"]
+        except (json.JSONDecodeError, ValueError) as e2:
+            logger.error("Invalid response after HOLD/CLOSE-CASH retry: %s – skipping", e2)
+            notify_error(f"Decision #{decision_number} skipped", str(e2))
+            return
+        if action in ("HOLD", "CLOSE") and position["status"] == "CASH":
+            logger.error("Claude still returned %s with CASH position – skipping", action)
+            notify_error(f"Decision #{decision_number} skipped", f"Claude insists on {action} with no position")
+            return
 
     # Execute order – must succeed before logging
     order_id = execute_action(action, features["current_price"], position)

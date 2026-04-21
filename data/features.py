@@ -7,9 +7,7 @@ from data.market import get_daily_bars, get_hourly_bars, get_intraday_bars_today
 import config
 
 VIENNA = ZoneInfo("Europe/Vienna")
-# US market open in UTC (15:30 UTC = 09:30 ET during EDT; fine as approximation)
-MARKET_OPEN_UTC_HOUR = 13   # 09:30 ET = 13:30 UTC (EDT); adjust for EST if needed
-MARKET_OPEN_UTC_MINUTE = 30
+NY = ZoneInfo("America/New_York")
 
 
 def _classify_trend(close: pd.Series, ma20: pd.Series, ma50: pd.Series) -> str:
@@ -22,8 +20,8 @@ def _classify_trend(close: pd.Series, ma20: pd.Series, ma50: pd.Series) -> str:
 
 
 def compute_features() -> dict:
-    # 100 calendar days ≈ 70 trading days, enough for 50-period MA with buffer
-    daily = get_daily_bars(config.SYMBOL, days_back=100)
+    # 420 calendar days ≈ 300 trading days; weekly wma50 needs ~350 weekly bars worth of daily data
+    daily = get_daily_bars(config.SYMBOL, days_back=420)
     hourly = get_hourly_bars(config.SYMBOL, days_back=10)
     intraday = get_intraday_bars_today(config.SYMBOL)
 
@@ -43,13 +41,8 @@ def compute_features() -> dict:
 
     # --- Trend (weekly) – aggregate daily bars to weekly Friday closes ---
     weekly = daily["close"].resample("W-FRI").last().dropna()
-    if len(weekly) >= 50:
-        wma20 = weekly.rolling(20).mean()
-        wma50 = weekly.rolling(50).mean()
-    else:
-        # fallback with min_periods
-        wma20 = weekly.rolling(20, min_periods=3).mean()
-        wma50 = weekly.rolling(50, min_periods=5).mean()
+    wma20 = weekly.rolling(20).mean()
+    wma50 = weekly.rolling(50).mean()
     trend_weekly = _classify_trend(weekly, wma20, wma50)
 
     # --- Momentum ---
@@ -132,14 +125,12 @@ def _compute_intraday(intraday: pd.DataFrame, daily: pd.DataFrame) -> tuple[floa
     if intraday.empty:
         return 0.0, price_vs_open, 0.0
 
-    # Filter to today's session only (UTC)
+    # Filter to today's session using NY timezone to handle DST automatically
     now_utc = intraday.index[-1]
+    now_ny = now_utc.astimezone(NY)
     today_date = now_utc.date()
 
-    # Session open bars: 13:30–14:00 UTC (first 30 min)
-    session_start = pd.Timestamp(today_date, tz=timezone.utc).replace(
-        hour=MARKET_OPEN_UTC_HOUR, minute=MARKET_OPEN_UTC_MINUTE
-    )
+    session_start = pd.Timestamp(now_ny.date(), tz=NY).replace(hour=9, minute=30).astimezone(timezone.utc)
     session_open_end = session_start + pd.Timedelta(minutes=30)
 
     today_bars = intraday[intraday.index.date == today_date]

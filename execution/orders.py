@@ -4,10 +4,9 @@ from datetime import datetime, timezone
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import (
     MarketOrderRequest,
-    TakeProfitRequest,
     StopLossRequest,
 )
-from alpaca.trading.enums import OrderSide, TimeInForce, OrderStatus
+from alpaca.trading.enums import OrderSide, TimeInForce
 
 import config
 from storage import db
@@ -32,6 +31,10 @@ def get_account():
     return _get_client().get_account()
 
 
+def get_portfolio_value() -> float:
+    return float(get_account().portfolio_value)
+
+
 def get_current_position() -> dict:
     """Return dict with keys: status ('LONG'|'SHORT'|'CASH'), qty, entry_price, unrealized_pnl_pct."""
     try:
@@ -42,7 +45,11 @@ def get_current_position() -> dict:
         side = "LONG" if qty > 0 else "SHORT"
         pnl_pct = round((current - entry) / entry * 100 * (1 if side == "LONG" else -1), 2)
         return {"status": side, "qty": abs(qty), "entry_price": entry, "unrealized_pnl_pct": pnl_pct}
-    except Exception:
+    except Exception as e:
+        # 404 = no open position (normal). Anything else is a connectivity/API problem.
+        err = str(e)
+        if "404" not in err and "position does not exist" not in err.lower():
+            logger.warning("get_current_position failed (treating as CASH): %s", e)
         return {"status": "CASH", "qty": 0, "entry_price": 0.0, "unrealized_pnl_pct": 0.0}
 
 
@@ -53,6 +60,8 @@ def _close_position() -> bool:
         return True
     except Exception as e:
         logger.error("Failed to close position: %s", e)
+        from notifications.ntfy import notify_error
+        notify_error("Failed to close position", str(e))
         return False
 
 
@@ -73,7 +82,7 @@ def execute_long(current_price: float) -> str | None:
                 qty=qty,
                 side=OrderSide.BUY,
                 time_in_force=TimeInForce.DAY,
-                order_class="bracket",
+                order_class="oto",
                 stop_loss=StopLossRequest(stop_price=stop_price),
             )
         )
@@ -95,7 +104,7 @@ def execute_short(current_price: float) -> str | None:
                 qty=qty,
                 side=OrderSide.SELL,
                 time_in_force=TimeInForce.DAY,
-                order_class="bracket",
+                order_class="oto",
                 stop_loss=StopLossRequest(stop_price=stop_price),
             )
         )
@@ -168,10 +177,4 @@ def reconcile_sl_hits() -> list[dict]:
 
 
 def _estimate_sl_pnl(decision: dict) -> float:
-    """Estimate P&L from SL hit based on entry price stored in features."""
-    features = decision.get("features_snapshot", {})
-    entry_price = features.get("current_price", 0.0)
-    action = decision.get("action", "LONG")
-    if action == "LONG":
-        return round(-config.STOP_LOSS_PCT * 100, 2)
     return round(-config.STOP_LOSS_PCT * 100, 2)
