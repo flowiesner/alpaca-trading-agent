@@ -5,5 +5,6 @@ services:
     env_file: .env
     volumes:
       - ./journal.db:/app/journal.db
+      - ./trading.log:/app/trading.log
     environment:
       - TZ=Europe/Vienna
