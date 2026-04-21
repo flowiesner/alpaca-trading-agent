@@ -4,3 +4,4 @@ apscheduler
 requests
 pandas
 numpy
+python-dotenv
