@@ -14,9 +14,10 @@ def notify(title: str, message: str, priority: str = "default"):
             f"https://ntfy.sh/{config.NTFY_TOPIC}",
             data=message.encode("utf-8"),
             headers={
-                "Title": title,
+                "Title": title.encode("ascii", errors="replace").decode("ascii"),
                 "Priority": priority,
                 "Tags": "chart_with_upwards_trend",
+                "Content-Type": "text/plain; charset=utf-8",
             },
             timeout=10,
         )
@@ -45,12 +46,12 @@ def notify_decision(decision: dict, position_pnl: float):
 
 
 def notify_daily_review(content: str, date_str: str):
-    notify(f"Daily Review – {date_str}", content)
+    notify(f"Daily Review - {date_str}", content)
 
 
 def notify_strategy_review(content: str, win_rate: float):
     notify(
-        f"Strategy Review – win rate {win_rate:.0%}",
+        f"Strategy Review - win rate {win_rate:.0%}",
         content,
         priority="high",
     )
@@ -58,11 +59,11 @@ def notify_strategy_review(content: str, win_rate: float):
 
 def notify_sl_hit(decision_id: int, pnl_pct: float):
     notify(
-        f"SL HIT – decision #{decision_id} | P&L={pnl_pct:+.2f}%",
+        f"SL HIT - decision #{decision_id} | P&L={pnl_pct:+.2f}%",
         f"Stop-loss triggered on decision #{decision_id}. Estimated P&L: {pnl_pct:+.2f}%.",
         priority="urgent",
     )
 
 
 def notify_error(context: str, error: str):
-    notify(f"ERROR – {context}", error, priority="high")
+    notify(f"ERROR - {context}", error, priority="high")

@@ -8,3 +8,6 @@ services:
       - ./trading.log:/app/trading.log
     environment:
       - TZ=Europe/Vienna
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
