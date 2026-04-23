@@ -1,10 +1,14 @@
 from datetime import datetime, timedelta, timezone
+import logging
+import requests
 import pandas as pd
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.enums import DataFeed
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
 import config
+
+logger = logging.getLogger(__name__)
 
 _client: StockHistoricalDataClient | None = None
 
@@ -19,6 +23,11 @@ def _get_client() -> StockHistoricalDataClient:
     return _client
 
 
+def _reset_client() -> None:
+    global _client
+    _client = None
+
+
 def _fetch_bars(symbol: str, timeframe: TimeFrame, days_back: int) -> pd.DataFrame:
     end = datetime.now(timezone.utc)
     start = end - timedelta(days=days_back)
@@ -29,7 +38,13 @@ def _fetch_bars(symbol: str, timeframe: TimeFrame, days_back: int) -> pd.DataFra
         end=end,
         feed=DataFeed.IEX,
     )
-    bars = _get_client().get_stock_bars(req)
+    try:
+        bars = _get_client().get_stock_bars(req)
+    except (requests.exceptions.ConnectionError, ConnectionResetError, OSError) as e:
+        # Stale connection from idle client – reset and retry once
+        logger.warning("Connection error fetching bars for %s, resetting client and retrying: %s", symbol, e)
+        _reset_client()
+        bars = _get_client().get_stock_bars(req)
     df = bars.df
     if df.empty:
         return df

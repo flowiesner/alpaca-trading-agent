@@ -6,6 +6,7 @@ Your job is to analyze the provided market features and return exactly one JSON 
 
 Rules:
 - action must be one of: LONG, SHORT, HOLD, CLOSE
+- HOLD and CLOSE are only valid when current_position is LONG or SHORT — never when current_position is CASH
 - reasoning: minimum 3 sentences, must reference at least 2 specific feature names from the input
 - confidence: float 0.0–1.0; reflect genuine uncertainty, avoid 0.9+ unless the setup is very clear
 - exit_trigger: REQUIRED when action is HOLD, omit otherwise
